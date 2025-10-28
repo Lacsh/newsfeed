@@ -4,84 +4,98 @@ import DarkModeToggle from "./components/DarkModeToggle";
 import VisitorCounter from "./components/VisitorCounter";
 
 export default function App() {
-  // STATE VARIABLES
   const [articles, setArticles] = useState([]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("general");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
   const observerRef = useRef();
 
-  // API KEYS 
- const gapiKey = import.meta.env.VITE_GNEWS_API_KEY;
 
+  const apiKey = process.env.REACT_APP_NEWS_API_KEY;
+  const mapiKey = process.env.REACT_APP_MEDIASTACK_KEY;
+  const gapiKey = process.env.REACT_APP_GNEWS_API_KEY;
+
+  
 const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
   setLoading(true);
   try {
-    const res = await fetch(
-      `https://gnews.io/api/v4/top-headlines?lang=en&country=in&topic=${cat}&q=${keyword}&max=10&apikey=${gapiKey}`
+    const urls = [
+      `https://newsapi.org/v2/top-headlines?country=in&page=${pageNum}&category=${cat}&q=${keyword}&apiKey=${apiKey}`,
+      `https://api.mediastack.com/v1/news?access_key=${mapiKey}&countries=in&limit=10&offset=${pageNum * 10}&categories=${cat}&keywords=${keyword}`,
+      `https://gnews.io/api/v4/top-headlines?country=in&topic=${cat}&q=${keyword}&token=${gapiKey}`
+    ];
+
+    const responses = await Promise.allSettled(urls.map((u) => fetch(u)));
+    const jsonResults = await Promise.all(
+      responses
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value.json())
     );
 
-    const data = await res.json();
+    
+    const validResults = jsonResults.filter(
+      (res) =>
+        res &&
+        (res.articles?.length > 0 ||
+         res.data?.length > 0 ||
+         res.news?.length > 0)
+    );
 
-    if (data.articles) {
-      setArticles((prev) => [...prev, ...data.articles]);
+    if (validResults.length === 0) {
+      console.warn("No valid data returned — possibly rate-limited or quota reached.");
+      setHasMore(false);
+      setError("⚠️ You've reached today's API limit or no news available right now.");
+      return;
+    }
+
+    
+    const articles = validResults.flatMap((res) => {
+      const arr = res.articles || res.data || res.news || [];
+      return arr.map((a) => ({
+        title: a.title,
+        description: a.description || a.content,
+        url: a.url,
+        image:
+          a.urlToImage && a.urlToImage.startsWith("http")
+            ? a.urlToImage
+            : a.image && a.image.startsWith("http")
+            ? a.image
+            : null,
+        source: a.source?.name || a.source || "Unknown",
+      }));
+    });
+
+    if (articles.length === 0) {
+      setHasMore(false);
+      setError("⚠️ No articles found or API limit reached.");
     } else {
-      console.error("No articles found", data);
+      
+      setArticles((prev) => [...prev, ...articles]);
+      setHasMore(true);
+      setError(null);
     }
   } catch (err) {
     console.error("Error fetching articles:", err);
+    setError("❌ Failed to fetch news. Check your connection or API limits.");
+  } finally {
+    setLoading(false);
   }
-  setLoading(false);
 };
 
 
-    for (let url of urls) {
-      try {
-        const res = await fetch(`https://gnews.io/api/v4/top-headlines?lang=en&country=in&max=10&apikey=${gapiKey}`);
 
-        if (!res.ok) continue;
-        const data = await res.json();
-
-        let newArticles = [];
-        if (data.articles?.length) newArticles = data.articles;
-        else if (data.data?.length) newArticles = data.data;
-        else continue;
-
-      
-        setArticles((prev) => [...prev, ...newArticles]);
-        setLoading(false);
-        return;
-      } catch (err) {
-        console.warn(`API failed: ${url}`, err);
-      }
-    }
-
-    // Dummy 
-    console.log(" APIs failed, using dummy data");
-    const dummy = Array.from({ length: 10 }, (_, i) => ({
-      title: `Sample News Title ${pageNum * 10 + i + 1}`,
-      description:
-        "This is dummy content for testing infinite scroll or when APIs are down.",
-      urlToImage: "https://via.placeholder.com/300x200",
-      url: "#",
-    }));
-    setArticles((prev) => [...prev, ...dummy]);
-    setLoading(false);
-  };
-
- 
   useEffect(() => {
     setPage(1);
     setArticles([]);
     fetchArticles(1, category, search);
   }, [category]);
 
- 
   useEffect(() => {
     fetchArticles(page, category, search);
   }, [page]);
-
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -92,17 +106,14 @@ const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
       },
       { threshold: 1 }
     );
-
     if (observerRef.current) observer.observe(observerRef.current);
     return () => observer.disconnect();
   }, [loading]);
-
 
   const filteredArticles = articles.filter((a) =>
     a.title?.toLowerCase().includes(search.toLowerCase())
   );
 
-  
   const categories = [
     "general",
     "business",
@@ -113,19 +124,15 @@ const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
     "health",
   ];
 
- 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 transition-colors duration-500">
-      {/* Header + Dark Mode */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">NewsFeed</h1>
         <DarkModeToggle />
       </div>
-      
-      {/* Global visitor counter */}
+
       <VisitorCounter />
-    
-      {/* Search Bar */}
+
       <input
         type="text"
         placeholder="Search news..."
@@ -139,14 +146,11 @@ const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
         className="w-full max-w-lg mb-6 p-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
 
-      {/* Category Buttons */}
       <div className="flex flex-wrap gap-3 justify-center mb-6">
         {categories.map((cat) => (
           <button
             key={cat}
-            onClick={() => {
-              setCategory(cat);
-            }}
+            onClick={() => setCategory(cat)}
             className={`px-4 py-2 rounded-full font-medium transition-all duration-300 ${
               category === cat
                 ? "bg-blue-600 text-white dark:bg-blue-500 scale-105"
@@ -158,21 +162,29 @@ const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
         ))}
       </div>
 
-      {/* News Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredArticles.map((article, index) => (
           <Newscard key={index} article={article} />
         ))}
       </div>
 
-      {/* Loading Spinner */}
       {loading && (
         <p className="text-center mt-4 animate-pulse text-blue-400">
           Loading more news...
         </p>
       )}
+      {error && (
+  <p className="text-center mt-4 text-red-400">
+    {error}
+  </p>
+)}
 
-      {/* Infinite Scroll Trigger */}
+{!hasMore && !loading && (
+  <p className="text-center mt-4 text-gray-400">
+     No more news to load.
+  </p>
+)}
+
       <div ref={observerRef} className="h-10"></div>
     </div>
   );
