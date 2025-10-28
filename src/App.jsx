@@ -13,24 +13,33 @@ export default function App() {
   const observerRef = useRef();
 
   // API KEYS 
-  const apiKey = "bcf5d948278041fba3612028ee65e1c4"; 
-  const mapiKey = "bf6da2375ef887dd5b4a087f536019ff"; 
-  const gapiKey = "b345a62f88aa9d3c3995097d0fe7616f"; 
+ const gapiKey = import.meta.env.VITE_GNEWS_API_KEY;
 
-  // FETCH NEWS 
-  const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
-    setLoading(true);
-    const urls = [
-      `https://newsapi.org/v2/top-headlines?country=in&page=${pageNum}&category=${cat}&q=${keyword}&apiKey=${apiKey}`,
-      `http://api.mediastack.com/v1/news?access_key=${mapiKey}&countries=in&limit=10&offset=${
-        pageNum * 10
-      }&categories=${cat}&keywords=${keyword}`,
-      `https://gnews.io/api/v4/top-headlines?country=in&topic=${cat}&q=${keyword}&token=${gapiKey}`,
-    ];
+const fetchArticles = async (pageNum = 1, cat = category, keyword = search) => {
+  setLoading(true);
+  try {
+    const res = await fetch(
+      `https://gnews.io/api/v4/top-headlines?lang=en&country=in&topic=${cat}&q=${keyword}&max=10&apikey=${gapiKey}`
+    );
+
+    const data = await res.json();
+
+    if (data.articles) {
+      setArticles((prev) => [...prev, ...data.articles]);
+    } else {
+      console.error("No articles found", data);
+    }
+  } catch (err) {
+    console.error("Error fetching articles:", err);
+  }
+  setLoading(false);
+};
+
 
     for (let url of urls) {
       try {
-        const res = await fetch(url);
+        const res = await fetch(`https://gnews.io/api/v4/top-headlines?lang=en&country=in&max=10&apikey=${gapiKey}`);
+
         if (!res.ok) continue;
         const data = await res.json();
 
